@@ -19,6 +19,9 @@ const uint8_t DROPBAY_SERVO2_PIN  = PN_2;
 const uint8_t SECONDARY_GIMBAL_PAN_SERVO3_PIN  = PM_7;
 const uint8_t SECONDARY_GIMBAL_TILT_SERVO4_PIN = PP_5;
 const uint8_t HEADLIGHT_PIN                    = PM_6;
+const uint8_t RED_LED_PIN                      = PM_1;
+const uint8_t GREEN_LED_PIN                    = PM_0;
+const uint8_t BLUE_LED_PIN                     = PM_2;
 
 //////////////////////////////////////////////////
 // We send serial speed bytes to motor controllers 
@@ -97,6 +100,14 @@ void setup()
   servo1.write(pan_servo_position);
   servo2.write(tilt_servo_position);
 
+  // Setup LED pins
+  pinMode(RED_LED_PIN, OUTPUT);
+  pinMode(GREEN_LED_PIN, OUTPUT);
+  pinMode(BLUE_LED_PIN, OUTPUT);
+  digitalWrite(RED_LED_PIN, LOW);
+  digitalWrite(GREEN_LED_PIN, LOW);
+  digitalWrite(BLUE_LED_PIN, LOW);
+
   NeoPixel.begin();
   
   Watchdog.begin(roveEstopDriveMotors, 150); 
@@ -115,10 +126,7 @@ void loop()
   Serial.print("ID: ");
   Serial.println(data_id);
   Serial.print("Value: ");
-  Serial.println(data_value[0]); 
-
- 
-  
+  Serial.println(data_value[0]);  
   
   switch (data_id) 
   {     
@@ -195,16 +203,23 @@ void loop()
     
     case UNDERGLOW_COLOR:
     {
+      /*
       for (int i = 0; i < LED_COUNT; i++)
       {
         NeoPixel.setPixelColor(i, data_value[0], data_value[1], data_value[2]);
       }
       NeoPixel.show();
+      */
+      
+      analogWrite(RED_LED_PIN,   data_value[0]);
+      analogWrite(GREEN_LED_PIN, data_value[1]);
+      analogWrite(BLUE_LED_PIN,  data_value[2]);
+      
       Watchdog.clear();
       break;
     }
 
-    case SECONDARY_GIMBAL_PAN:
+    case 102: //Pan
     {
       int16_t *gimbal_values = ((int16_t*)(data_value));
       int16_t pan_inc = gimbal_values[0];
@@ -216,7 +231,7 @@ void loop()
       break;
     }
 
-    case SECONDARY_GIMBAL_TILT:
+    case 103:  //Tilt
     {
       int16_t *gimbal_values = ((int16_t*)(data_value));
       int16_t tilt_inc = gimbal_values[0];
