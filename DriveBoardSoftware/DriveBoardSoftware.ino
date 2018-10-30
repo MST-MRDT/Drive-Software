@@ -25,8 +25,15 @@ const uint8_t HEADLIGHT_PIN                    = PM_6;
 const byte DRIVE_MAX_FORWARD = 255;
 const byte DRIVE_MAX_REVERSE = 0;
 const byte DRIVE_ZERO        = 127;
+byte left_drive_speed_in     = DRIVE_ZERO;
+byte right_drive_speed_in    = DRIVE_ZERO;
+//Ramp Variables
+const byte    MOTOR_ACCEL_CT_PER_SEC    =50;
+const int16_t SPEED_UPDATE_PERIOD_MILLIS=100;
+bool          in_upper_half_period = 0;
 byte left_drive_speed        = DRIVE_ZERO;
 byte right_drive_speed       = DRIVE_ZERO;
+const byte SPEED_UPDATE_VALUE = MOTOR_ACCEL_CT_PER_SEC*SPEED_UPDATE_PERIOD_MILLIS/1000;
 
 const byte LED_COUNT         = 60;
 const byte LED_SPI_MODULE    = 3;
@@ -37,6 +44,7 @@ int headlight_loop_count             = 0;
 
 int16_t pan_servo_position  = 180;
 int16_t tilt_servo_position = 90;
+
 
 //Only used for extreme retrieval task
 //Commented out to remove complexity in the servo library to add two axs gimbal code
@@ -55,6 +63,8 @@ Servo servo2;
 RoveWatchdog        Watchdog;
 Adafruit_NeoPixel   NeoPixel(LED_COUNT, LED_SPI_MODULE);
 
+RoveCommEthernetUdp roveComm;
+
 void roveEstopDriveMotors();
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
@@ -68,9 +78,9 @@ void setup()
   Serial5.begin(19200);
   Serial6.begin(19200);
   Serial7.begin(19200);
-  delay(1);
+//  delay(1);
   
-  roveComm_Begin(ROVE_FIRST_OCTET, ROVE_SECOND_OCTET, ROVE_THIRD_OCTET, DRIVEBOARD_FOURTH_OCTET); 
+  roveComm.begin(ROVE_FIRST_OCTET, ROVE_SECOND_OCTET, ROVE_THIRD_OCTET, DRIVEBOARD_FOURTH_OCTET); 
   delay(1);
 
  // pinMode(LEDSTRIP_SERVO4_PIN, OUTPUT);
@@ -109,7 +119,7 @@ void loop()
   uint16_t data_id   = 0;
   size_t   data_size = 0;
   uint8_t  data_value[4];
-  roveComm_GetMsg(&data_id, &data_size, &data_value);
+  roveComm.read(&data_id, &data_size, &data_value);
   switch (data_id) 
   {     
     case DRIVE_LEFT_RIGHT:
@@ -119,8 +129,8 @@ void loop()
       int16_t right_speed_temp =  (int16_t)  speed;        // 2 low  bytes contain RED's right speed as int16
     
       left_speed_temp   = -left_speed_temp; // Motors were wired backwards     
-      left_drive_speed  = map(left_speed_temp,  RED_MAX_REVERSE, RED_MAX_FORWARD, DRIVE_MAX_REVERSE, DRIVE_MAX_FORWARD); 
-      right_drive_speed = map(right_speed_temp, RED_MAX_REVERSE, RED_MAX_FORWARD, DRIVE_MAX_REVERSE, DRIVE_MAX_FORWARD);     
+      left_drive_speed_in  = map(left_speed_temp,  RED_MAX_REVERSE, RED_MAX_FORWARD, DRIVE_MAX_REVERSE, DRIVE_MAX_FORWARD); 
+      right_drive_speed_in = map(right_speed_temp, RED_MAX_REVERSE, RED_MAX_FORWARD, DRIVE_MAX_REVERSE, DRIVE_MAX_FORWARD);     
       Watchdog.clear();
       break;  
     }
@@ -193,30 +203,6 @@ void loop()
       Watchdog.clear();
       break;
     }
-
-    case SECONDARY_GIMBAL_PAN:
-    {
-      int16_t *gimbal_values = ((int16_t*)(data_value));
-      int16_t pan_inc = gimbal_values[0];
-      pan_servo_position += pan_inc;
-      pan_servo_position = constrain(pan_servo_position, 0, 180);
-
-      servo1.write(pan_servo_position);
-      Serial.println(pan_servo_position);
-      break;
-    }
-
-    case SECONDARY_GIMBAL_TILT:
-    {
-      int16_t *gimbal_values = ((int16_t*)(data_value));
-      int16_t tilt_inc = gimbal_values[0];
-      tilt_servo_position += tilt_inc;
-      tilt_servo_position = constrain(tilt_servo_position, 0, 180);
-
-      servo2.write(tilt_servo_position);
-      Serial.println(tilt_servo_position);
-      break;
-    }
     
     default:
       break;       
@@ -234,6 +220,38 @@ void loop()
       digitalWrite(HEADLIGHT_PIN, 0);
     }
   }
+  if((!in_upper_half_period) && (millis()%SPEED_UPDATE_PERIOD_MILLIS)>.5*SPEED_UPDATE_PERIOD_MILLIS)
+  {
+    driveMotors();
+    in_upper_half_period = true;
+  }
+  else if ((in_upper_half_period) && (millis()%SPEED_UPDATE_PERIOD_MILLIS)<.5*SPEED_UPDATE_PERIOD_MILLIS)
+  {
+    in_upper_half_period = false;
+  }
+  
+  delay(1);
+}
+
+void driveMotors()
+{
+  if(abs(left_drive_speed-left_drive_speed_in)<(SPEED_UPDATE_VALUE))
+  {
+    left_drive_speed = left_drive_speed_in;
+  }
+  else
+  {
+    left_drive_speed += (left_drive_speed_in-left_drive_speed_in<0?-1:1)*SPEED_UPDATE_VALUE;
+  }
+
+   if(abs(right_drive_speed-right_drive_speed_in)<(SPEED_UPDATE_VALUE))
+  {
+    right_drive_speed = right_drive_speed_in;
+  }
+  else
+  {
+    right_drive_speed += (right_drive_speed_in-right_drive_speed_in<0?-1:1)*SPEED_UPDATE_VALUE;
+  }
   
   Serial2.write(left_drive_speed );
   Serial3.write(left_drive_speed );
@@ -241,11 +259,8 @@ void loop()
   Serial5.write(right_drive_speed);
   Serial6.write(right_drive_speed);
   Serial7.write(right_drive_speed);
-  delay(1);
 }
-
 ////////////////////////////////
-
 void roveEstopDriveMotors() 
 { 
   left_drive_speed  = DRIVE_ZERO;
